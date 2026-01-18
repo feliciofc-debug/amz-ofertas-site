@@ -1,0 +1,50 @@
+# Bloquear acesso a arquivos sensíveis
+<FilesMatch "^\.env">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Bloquear acesso a todos os arquivos .env*
+<FilesMatch "\.env.*$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Bloquear acesso a arquivos de configuração
+<FilesMatch "\.(json|toml|yml|yaml|ini|config)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Permitir apenas arquivos específicos do public
+<FilesMatch "\.(html|css|js|png|jpg|jpeg|gif|svg|ico|pdf|txt)$">
+    Order deny,allow
+    Allow from all
+</FilesMatch>
+
+# Proteger contra listagem de diretórios
+Options -Indexes
+
+# Reescrever URLs para o SPA
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Bloquear acesso a arquivos ocultos
+  RewriteRule "(^|/)\." - [F]
+
+  # Se o arquivo ou diretório existe, servir diretamente
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+
+  # Caso contrário, redirecionar para index.html (SPA)
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Headers de segurança
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

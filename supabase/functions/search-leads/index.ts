@@ -1,0 +1,624 @@
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+// Mapear setores para termos de EMPRESAS
+const mapSetores: Record<string, string[]> = {
+  'agricultura': ['agrícola', 'agronegócio', 'grãos', 'fertilizantes', 'sementes'],
+  'indústria': ['indústria', 'fábrica', 'manufatura', 'industrial'],
+  'construção': ['construtora', 'materiais construção', 'engenharia'],
+  'alimentação': ['alimentos', 'bebidas', 'food service', 'frigorífico'],
+  'automotivo': ['autopeças', 'veículos', 'automotive', 'concessionária'],
+  'tecnologia': ['tecnologia', 'software', 'TI', 'informática'],
+  'saúde': ['hospitalar', 'equipamentos médicos', 'farmacêutico'],
+  'varejo': ['distribuidor', 'atacado', 'comércio'],
+  'logística': ['logística', 'transporte', 'armazém', 'frete'],
+  'energia': ['energia', 'petróleo', 'gás', 'elétrica'],
+  'químico': ['química', 'petroquímica', 'plásticos'],
+  'mineração': ['mineração', 'siderurgia', 'metalurgia'],
+  'têxtil': ['têxtil', 'confecção', 'vestuário'],
+  'papel': ['papel', 'celulose', 'embalagens'],
+  'farmacêutico': ['farmacêutico', 'medicamentos', 'laboratório']
+}
+
+// Tipos de empresas para busca B2B
+const tiposEmpresaComex = [
+  'importadora', 'exportadora', 'trading', 
+  'distribuidora', 'atacadista', 'fornecedor'
+]
+
+// Funções auxiliares
+const extrairTelefone = (text: string): string | null => {
+  if (!text) return null
+  const regex = /(?:\+55|55)?[\s.-]?\(?([1-9]{2})\)?[\s.-]?(?:9[\s.-]?)?([0-9]{4})[\s.-]?([0-9]{4})/g
+  const match = regex.exec(text)
+  if (match) {
+    return `+55${match[1]}${match[2]}${match[3]}`
+  }
+  return null
+}
+
+const extrairEmail = (text: string): string | null => {
+  if (!text) return null
+  const regex = /[\w.-]+@[\w.-]+\.\w+/g
+  const match = regex.exec(text)
+  return match ? match[0] : null
+}
+
+const limparNomeEmpresa = (title: string): string => {
+  if (!title) return 'Empresa não identificada'
+  return title
+    .split('|')[0]
+    .split(' - ')[0]
+    .replace(/\s*\(.*?\)\s*/g, '')
+    .replace(/\.\.\./g, '')
+    .trim()
+    .substring(0, 150)
+}
+
+// Gerar CNPJ fictício único baseado no nome da empresa
+const gerarCnpjFicticio = (nome: string, index: number): string => {
+  const hash = nome.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  const timestamp = Date.now().toString().slice(-8)
+  const cnpj = `${String(hash % 100).padStart(2, '0')}${String(index).padStart(3, '0')}${timestamp}${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`
+  return cnpj.substring(0, 14).padEnd(14, '0')
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders })
+  }
+
+  console.log('🚀 [INICIO] Função search-leads V7 - BUSCA DE EMPRESAS (CORRIGIDO)')
+  
+  const SERPAPI_KEY = Deno.env.get('SERPAPI_KEY')
+  const GOOGLE_API_KEY = Deno.env.get('GOOGLE_API_KEY')
+
+  console.log('🔑 [SECRETS] SERPAPI:', SERPAPI_KEY ? `✅ (${SERPAPI_KEY.substring(0, 8)}...)` : '❌')
+  console.log('🔑 [SECRETS] GOOGLE:', GOOGLE_API_KEY ? '✅' : '❌')
+  
+  try {
+    const body = await req.json()
+    console.log('📦 [BODY]', JSON.stringify(body, null, 2))
+
+    const { campanha_id, icp_config_id } = body
+
+    if (!campanha_id || !icp_config_id) {
+      throw new Error('campanha_id e icp_config_id são obrigatórios')
+    }
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+
+    // Buscar ICP
+    const { data: icp, error: icpError } = await supabase
+      .from('icp_configs')
+      .select('*')
+      .eq('id', icp_config_id)
+      .single()
+
+    if (icpError || !icp) {
+      throw new Error('ICP não encontrado')
+    }
+
+    console.log('✅ [ICP]', icp.nome)
+    console.log('📋 [ICP CONFIG]', JSON.stringify(icp, null, 2))
+
+    // Extrair configuração
+    const isB2B = icp.tipo === 'b2b'
+    const setores = icp.b2b_config?.setores || icp.filtros_avancados?.setores || []
+    const profissao = icp.b2c_config?.profissoes?.[0] || icp.b2c_config?.profissao || ''
+    
+    // CORREÇÃO: Busca dinâmica de estados e cidades (SEM fallback fixo para Rio!)
+    const estadosSelecionados = icp.b2b_config?.estados || 
+                               icp.b2c_config?.estados || 
+                               icp.filtros_avancados?.estados || 
+                               [];
+
+    const cidadesSelecionadas = icp.b2b_config?.cidades || 
+                               icp.b2c_config?.cidades || 
+                               [];
+    
+    // Mapa de capitais por estado - TODOS os 27 estados brasileiros
+    const CAPITAIS: Record<string, string> = {
+      'AC': 'Rio Branco', 'AL': 'Maceió', 'AP': 'Macapá', 'AM': 'Manaus',
+      'BA': 'Salvador', 'CE': 'Fortaleza', 'DF': 'Brasília', 'ES': 'Vitória',
+      'GO': 'Goiânia', 'MA': 'São Luís', 'MT': 'Cuiabá', 'MS': 'Campo Grande',
+      'MG': 'Belo Horizonte', 'PA': 'Belém', 'PB': 'João Pessoa', 'PR': 'Curitiba',
+      'PE': 'Recife', 'PI': 'Teresina', 'RJ': 'Rio de Janeiro', 'RN': 'Natal',
+      'RS': 'Porto Alegre', 'RO': 'Porto Velho', 'RR': 'Boa Vista', 'SC': 'Florianópolis',
+      'SP': 'São Paulo', 'SE': 'Aracaju', 'TO': 'Palmas'
+    };
+
+    // Coordenadas das capitais para Google Maps (lat,lng)
+    const COORDENADAS: Record<string, string> = {
+      'AC': '-9.9754,-67.8249', 'AL': '-9.6658,-35.7350', 'AP': '0.0349,-51.0694', 'AM': '-3.1190,-60.0217',
+      'BA': '-12.9714,-38.5014', 'CE': '-3.7172,-38.5433', 'DF': '-15.7942,-47.8822', 'ES': '-20.3155,-40.3128',
+      'GO': '-16.6869,-49.2648', 'MA': '-2.5307,-44.3068', 'MT': '-15.6014,-56.0979', 'MS': '-20.4697,-54.6201',
+      'MG': '-19.9167,-43.9345', 'PA': '-1.4558,-48.4902', 'PB': '-7.1195,-34.8450', 'PR': '-25.4290,-49.2671',
+      'PE': '-8.0476,-34.8770', 'PI': '-5.0892,-42.8019', 'RJ': '-22.9068,-43.1729', 'RN': '-5.7945,-35.2110',
+      'RS': '-30.0346,-51.2177', 'RO': '-8.7612,-63.9004', 'RR': '2.8235,-60.6758', 'SC': '-27.5954,-48.5480',
+      'SP': '-23.5505,-46.6333', 'SE': '-10.9472,-37.0731', 'TO': '-10.2491,-48.3243'
+    };
+
+    let cidade = '';
+    let estado = '';
+
+    if (cidadesSelecionadas.length > 0) {
+      cidade = cidadesSelecionadas[0];
+      estado = estadosSelecionados.length > 0 ? estadosSelecionados[0] : '';
+    } else if (estadosSelecionados.length > 0) {
+      estado = estadosSelecionados[0];
+      cidade = CAPITAIS[estado] || '';
+    }
+
+    // Só usar fallback se REALMENTE não tiver nada configurado
+    if (!cidade && !estado) {
+      console.warn('⚠️ [SEARCH-LEADS] Nenhuma cidade/estado configurado, usando São Paulo como fallback');
+      cidade = 'São Paulo';
+      estado = 'SP';
+    }
+
+    console.log('🔍 [SEARCH-LEADS] Debug ICP:', {
+      estadosSelecionados,
+      cidadesSelecionadas,
+      cidade_final: cidade,
+      estado_final: estado,
+      b2b_config: icp.b2b_config,
+      b2c_config: icp.b2c_config,
+      filtros_avancados: icp.filtros_avancados
+    });
+    const bairros = icp.b2c_config?.bairros || icp.filtros_avancados?.bairros || ''
+
+    console.log('🎯 [TIPO]', isB2B ? 'B2B (EMPRESAS)' : 'B2C (Profissionais)')
+    console.log('🎯 [BUSCA] Parâmetros:', { setores, profissao, cidade, estado, bairros })
+
+    // SET para evitar duplicatas INTERNAS (mesma busca)
+    const empresasUnicas = new Set<string>()
+    let leads: any[] = []
+
+    // Verificar duplicata INTERNA (não do banco!)
+    const isEmpresaDuplicada = (nome: string, website?: string): boolean => {
+      const key = `${nome.toLowerCase().trim()}_${website?.toLowerCase() || ''}`
+      if (empresasUnicas.has(key)) {
+        console.log('⚠️ [DUPLICATA INTERNA] Ignorando:', nome)
+        return true
+      }
+      empresasUnicas.add(key)
+      return false
+    }
+
+    // Definir tabela correta
+    const tabela = isB2B ? 'leads_b2b' : 'leads_b2c'
+    
+    // ❌ REMOVIDO: Não buscar leads existentes do banco
+    // Deixar o banco gerenciar duplicatas via constraint!
+    console.log('📊 [DB] Tabela destino:', tabela)
+
+    // ============ GERAR QUERIES ============
+    const gerarQueries = (): string[] => {
+      const queries: string[] = []
+      const localizacao = `${cidade} ${estado}`
+      
+      if (isB2B && setores.length > 0) {
+        console.log('🏢 [MODO] B2B - Buscando EMPRESAS por setor')
+        
+        for (const setor of setores) {
+          const termosSetor = mapSetores[setor.toLowerCase()] || [setor]
+          
+          for (const tipoEmpresa of tiposEmpresaComex) {
+            queries.push(`${tipoEmpresa} ${termosSetor[0]} ${localizacao}`)
+          }
+          
+          queries.push(`comércio exterior ${termosSetor[0]} ${localizacao}`)
+          queries.push(`empresa ${termosSetor[0]} importação ${localizacao}`)
+        }
+        
+        queries.push(`importadora ${localizacao}`)
+        queries.push(`exportadora ${localizacao}`)
+        queries.push(`trading company ${localizacao}`)
+        
+      } else if (profissao) {
+        // MODO B2C: Buscar PROFISSIONAIS no LINKEDIN!
+        console.log('👤 [MODO] B2C - Buscando PROFISSIONAIS no LinkedIn')
+        
+        // Queries para LinkedIn
+        queries.push(`site:linkedin.com/in ${profissao} ${cidade}`)
+        queries.push(`site:linkedin.com/in "${profissao}" "${cidade}"`)
+        
+        if (bairros) {
+          const bairrosList = bairros.split(',').map((b: string) => b.trim())
+          for (const bairro of bairrosList.slice(0, 3)) {
+            queries.push(`site:linkedin.com/in ${profissao} ${bairro} ${cidade}`)
+          }
+        }
+        
+        // Variações
+        queries.push(`site:linkedin.com/in ${profissao} Brasil`)
+        queries.push(`site:linkedin.com/in "${profissao}" ${estado}`)
+        
+      } else {
+        queries.push(`empresa ${localizacao}`)
+      }
+      
+      return queries.slice(0, 15)
+    }
+
+    const searchQueries = gerarQueries()
+    console.log('🔍 [QUERIES] Total:', searchQueries.length)
+    searchQueries.forEach((q, i) => console.log(`  Query ${i + 1}:`, q))
+
+    // ============ SERPAPI - BUSCA ============
+    if (SERPAPI_KEY && SERPAPI_KEY !== 'undefined' && SERPAPI_KEY.length > 10) {
+      
+      // ========== B2C: BUSCAR PROFISSIONAIS NO LINKEDIN ==========
+      if (!isB2B && profissao) {
+        console.log('👤 [SERPAPI] ========== BUSCANDO PROFISSIONAIS LINKEDIN ==========')
+        
+        try {
+          for (const query of searchQueries) {
+            if (leads.length >= 50) {
+              console.log('✅ [LINKEDIN] Limite de 50 profissionais atingido')
+              break
+            }
+            
+            console.log('🔍 [LINKEDIN QUERY]', query)
+            
+            // Busca no Google com site:linkedin.com
+            const serpUrl = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&location=Brazil&hl=pt&gl=br&num=30&api_key=${SERPAPI_KEY}`
+            
+            const serpResponse = await fetch(serpUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0' }
+            })
+            
+            if (!serpResponse.ok) {
+              console.error('❌ [SERPAPI] HTTP', serpResponse.status)
+              continue
+            }
+            
+            const serpData = await serpResponse.json()
+            
+            if (serpData.error) {
+              console.error('❌ [SERPAPI] Erro:', serpData.error)
+              continue
+            }
+            
+            // Processar resultados do LinkedIn
+            const linkedinResults = (serpData.organic_results || []).filter((r: any) => 
+              r.link?.includes('linkedin.com/in/')
+            )
+            
+            console.log(`💼 [LINKEDIN] Perfis encontrados: ${linkedinResults.length}`)
+            
+            for (const result of linkedinResults) {
+              // Extrair nome do título do LinkedIn
+              let nome = result.title?.split(' - ')[0]?.split(' | ')[0]?.trim() || ''
+              nome = nome.replace(/\s*\(.*?\)\s*/g, '').trim()
+              
+              if (!nome || nome.length < 3) continue
+              
+              // Verificar duplicata
+              if (isEmpresaDuplicada(nome, result.link)) continue
+              
+              // Extrair informações do snippet
+              const snippet = result.snippet || ''
+              const telefone = extrairTelefone(snippet)
+              const email = extrairEmail(snippet)
+              
+              // Extrair especialidade do snippet se possível
+              let especialidade = ''
+              const especialidadeMatch = snippet.match(/(especialista|especializado|especialidade)[:\s]+([^.]+)/i)
+              if (especialidadeMatch) {
+                especialidade = especialidadeMatch[2].trim().substring(0, 100)
+              }
+              
+              const leadData: any = {
+                nome_completo: nome,
+                profissao: profissao,
+                especialidade: especialidade || null,
+                cidade: cidade,
+                estado: estado,
+                telefone: telefone,
+                email: email,
+                linkedin_url: result.link,
+                fonte: 'linkedin',
+                fonte_snippet: snippet.substring(0, 300),
+                query_usada: query,
+                pipeline_status: 'descoberto',
+                score: 80,
+                campanha_id: campanha_id,
+                user_id: icp.user_id
+              }
+              
+              leads.push(leadData)
+              console.log(`✅ [LINKEDIN] ${nome} | ${profissao} | ${result.link}`)
+            }
+            
+            // Pequeno delay entre queries
+            await new Promise(r => setTimeout(r, 500))
+          }
+        } catch (error) {
+          console.error('❌ [LINKEDIN] Erro geral:', error)
+        }
+        
+      } else {
+        // ========== B2B: BUSCAR EMPRESAS NO GOOGLE MAPS ==========
+        console.log('🏢 [SERPAPI] ========== BUSCANDO EMPRESAS ==========')
+        
+        try {
+          for (const query of searchQueries) {
+            if (leads.length >= 50) {
+              console.log('✅ [SERPAPI] Limite de 50 empresas atingido')
+              break
+            }
+            
+            console.log('🔍 [QUERY]', query)
+            
+            // Busca com engine=google_maps para resultados locais
+            // Usar coordenadas dinâmicas baseadas no estado selecionado
+            const coords = COORDENADAS[estado] || COORDENADAS['SP'] || '-23.5505,-46.6333';
+            const serpUrl = `https://serpapi.com/search.json?engine=google_maps&q=${encodeURIComponent(query)}&ll=@${coords},11z&hl=pt-br&api_key=${SERPAPI_KEY}`
+            
+            const serpResponse = await fetch(serpUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0' }
+            })
+
+            if (!serpResponse.ok) {
+              console.error('❌ [SERPAPI MAPS] HTTP', serpResponse.status)
+              continue
+            }
+
+            const serpData = await serpResponse.json()
+
+            if (serpData.error) {
+              console.error('❌ [SERPAPI] Erro:', serpData.error)
+              continue
+            }
+
+            // Processar resultados do Google Maps
+            const places = serpData.local_results || serpData.place_results || []
+            console.log(`📍 [GOOGLE MAPS] Empresas encontradas: ${places.length}`)
+
+            for (const place of places.slice(0, 15)) {
+              const nome = limparNomeEmpresa(place.title || place.name)
+              
+              if (nome && !isEmpresaDuplicada(nome, place.website)) {
+                const leadData: any = {
+                  nome_fantasia: nome,
+                  razao_social: nome,
+                  setor: setores[0] || 'Não identificado',
+                  cnpj: gerarCnpjFicticio(nome, leads.length),
+                  telefone: place.phone || place.phone_number,
+                  endereco: place.address,
+                  site_url: place.website,
+                  cidade: cidade,
+                  estado: estado,
+                  fonte: 'google_maps',
+                  fonte_snippet: `Rating: ${place.rating || 'N/A'} | Reviews: ${place.reviews || 0}`,
+                  query_usada: query,
+                  pipeline_status: 'descoberto',
+                  score: 75,
+                  campanha_id: campanha_id,
+                  user_id: icp.user_id
+                }
+                
+                leads.push(leadData)
+                console.log(`✅ [MAPS] ${nome} | 📱 ${place.phone || 'Sem tel'} | 📍 ${place.address || 'Sem end'}`)
+              }
+            }
+
+            // Pausa entre queries
+            await new Promise(resolve => setTimeout(resolve, 800))
+          }
+
+          console.log(`✅ [SERPAPI] Total de empresas: ${leads.length}`)
+
+        } catch (error) {
+          const err = error as Error
+          console.error('❌ [SERPAPI] ERRO:', err.message)
+        }
+      }
+    }
+
+    // ============ GOOGLE PLACES API COMO COMPLEMENTO (APENAS B2B) ============
+    if (isB2B && leads.length < 20 && GOOGLE_API_KEY) {
+      console.log('🗺️ [GOOGLE PLACES] ========== BUSCANDO MAIS EMPRESAS ==========')
+      
+      try {
+        for (const query of searchQueries.slice(0, 5)) {
+          if (leads.length >= 50) break
+          
+          console.log('🔍 [PLACES] Query:', query)
+          
+          const placesUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${GOOGLE_API_KEY}&language=pt-BR`
+          
+          const placesResponse = await fetch(placesUrl)
+          
+          if (!placesResponse.ok) {
+            console.error('❌ [PLACES] HTTP', placesResponse.status)
+            continue
+          }
+
+          const placesData = await placesResponse.json()
+
+          if (placesData.status !== 'OK') {
+            console.log('⚠️ [PLACES] Status:', placesData.status)
+            continue
+          }
+
+          console.log(`📍 [PLACES] Resultados: ${placesData.results?.length || 0}`)
+
+          for (const place of (placesData.results || []).slice(0, 10)) {
+            const nome = limparNomeEmpresa(place.name)
+            
+            if (nome && !isEmpresaDuplicada(nome, '')) {
+              // Buscar detalhes para telefone
+              let telefone = null
+              let website = null
+              
+              if (place.place_id) {
+                try {
+                  const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=formatted_phone_number,website&key=${GOOGLE_API_KEY}`
+                  const detailsResponse = await fetch(detailsUrl)
+                  const detailsData = await detailsResponse.json()
+                  
+                  if (detailsData.result) {
+                    telefone = detailsData.result.formatted_phone_number
+                    website = detailsData.result.website
+                  }
+                } catch (e) {
+                  console.log('⚠️ Erro ao buscar detalhes:', e)
+                }
+              }
+
+              const leadData: any = {
+                nome_fantasia: nome,
+                razao_social: nome,
+                setor: setores[0] || 'Não identificado',
+                cnpj: gerarCnpjFicticio(nome, leads.length),
+                telefone: telefone,
+                endereco: place.formatted_address,
+                site_url: website,
+                cidade: cidade,
+                estado: estado,
+                fonte: 'google_places',
+                fonte_snippet: `Rating: ${place.rating || 'N/A'} | ${place.user_ratings_total || 0} avaliações`,
+                query_usada: query,
+                pipeline_status: 'descoberto',
+                score: telefone ? 80 : 60,
+                campanha_id: campanha_id,
+                user_id: icp.user_id
+              }
+              
+              leads.push(leadData)
+              console.log(`✅ [PLACES] ${nome} | 📱 ${telefone || 'Sem tel'} | 🌐 ${website || 'Sem site'}`)
+            }
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+
+        console.log(`✅ [PLACES] Total após complemento: ${leads.length}`)
+
+      } catch (error) {
+        const err = error as Error
+        console.error('❌ [PLACES] ERRO:', err.message)
+      }
+    }
+
+    // ============ SALVAR LEADS ============
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log(`💾 [SALVAR] NOVOS leads para salvar: ${leads.length}`)
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+
+    let leadsNovosInseridos = 0
+    
+    if (leads.length > 0) {
+      const { data: insertData, error: insertError } = await supabase
+        .from(tabela)
+        .insert(leads)
+        .select()
+
+      if (insertError) {
+        console.error('❌ [DB] Erro ao salvar em lote:', insertError.message)
+        
+        // Tentar inserir um por um (ignora duplicatas)
+        for (const lead of leads) {
+          const { error: singleError } = await supabase
+            .from(tabela)
+            .insert(lead)
+          
+          if (!singleError) {
+            leadsNovosInseridos++
+          } else if (singleError.message.includes('duplicate') || singleError.message.includes('unique')) {
+            // Duplicata é normal, não é erro
+            console.log('⚠️ [DUPLICATA DB] Ignorando:', lead.nome_fantasia || lead.razao_social)
+          } else {
+            console.error('❌ [DB] Erro individual:', singleError.message, '- Lead:', lead.razao_social || lead.nome_fantasia)
+          }
+        }
+        console.log(`✅ [DB] Salvos individualmente: ${leadsNovosInseridos}/${leads.length}`)
+      } else {
+        leadsNovosInseridos = insertData?.length || leads.length
+        console.log(`✅ [DB] ${leadsNovosInseridos} empresas salvas com sucesso`)
+      }
+
+      // Atualizar stats da campanha
+      const { data: currentStats } = await supabase
+        .from('campanhas_prospeccao')
+        .select('stats')
+        .eq('id', campanha_id)
+        .single()
+
+      const descobertosAtuais = (currentStats?.stats as any)?.descobertos || 0
+
+      await supabase
+        .from('campanhas_prospeccao')
+        .update({
+          stats: {
+            descobertos: descobertosAtuais + leadsNovosInseridos,
+            enriquecidos: (currentStats?.stats as any)?.enriquecidos || 0,
+            qualificados: (currentStats?.stats as any)?.qualificados || 0,
+            enviados: (currentStats?.stats as any)?.enviados || 0,
+            responderam: (currentStats?.stats as any)?.responderam || 0,
+            convertidos: (currentStats?.stats as any)?.convertidos || 0
+          }
+        })
+        .eq('id', campanha_id)
+    }
+
+    // Contar TOTAL de leads da campanha no banco
+    const { count: totalLeadsCampanha } = await supabase
+      .from(tabela)
+      .select('*', { count: 'exact', head: true })
+      .eq('campanha_id', campanha_id)
+
+    // Contar empresas com telefone
+    const empresasComTelefone = leads.filter(l => l.telefone).length
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log('✅ [FIM] Busca concluída:')
+    console.log(`   📊 NOVOS inseridos agora: ${leadsNovosInseridos}`)
+    console.log(`   📊 TOTAL na campanha: ${totalLeadsCampanha}`)
+    console.log(`   📱 Com telefone (novos): ${empresasComTelefone}`)
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+
+    return new Response(JSON.stringify({
+      success: true,
+      novos_encontrados: leadsNovosInseridos,
+      total_campanha: totalLeadsCampanha || 0,
+      total_encontrados: leadsNovosInseridos, // para compatibilidade
+      empresas_com_telefone: empresasComTelefone,
+      tipo: isB2B ? 'B2B (Empresas)' : 'B2C',
+      queries_executadas: searchQueries.length,
+      fontes_utilizadas: [...new Set(leads.map(l => l.fonte))],
+      debug: {
+        serpapi_configured: !!SERPAPI_KEY,
+        google_places_configured: !!GOOGLE_API_KEY,
+        queries: searchQueries,
+        leads_novos: leadsNovosInseridos,
+        leads_total: totalLeadsCampanha
+      }
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+
+  } catch (error) {
+    const err = error as Error
+    console.error('❌ [ERRO FATAL]', err.message)
+    
+    return new Response(JSON.stringify({
+      success: false,
+      error: err.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+})

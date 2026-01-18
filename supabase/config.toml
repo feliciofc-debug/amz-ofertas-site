@@ -1,0 +1,260 @@
+project_id = "jibpvpqgplmahjhswiza"
+
+[functions.criar-instancia-wuzapi-afiliado]
+verify_jwt = true
+
+[functions.ebook-airfryer]
+verify_jwt = false
+
+[functions.execute-campaign]
+verify_jwt = false
+
+[functions.wuzapi-webhook]
+verify_jwt = false
+
+[functions.send-wuzapi-message]
+verify_jwt = false
+
+[functions.analisar-produto]
+verify_jwt = false
+
+[functions.meta-auth-callback]
+verify_jwt = false
+
+[functions.hotmart-auth]
+verify_jwt = false
+
+[functions.buscar-oportunidades]
+verify_jwt = false
+
+[functions.gerar-posts]
+verify_jwt = false
+
+[functions.gerar-posts-whatsapp]
+verify_jwt = false
+
+[functions.calcular-roi]
+verify_jwt = false
+
+[functions.calcular-roi-avancado]
+verify_jwt = false
+
+[functions.rastrear-pixel]
+verify_jwt = false
+
+[functions.gerar-conteudo-ia]
+verify_jwt = false
+
+[functions.send-whatsapp]
+verify_jwt = false
+
+[functions.send-campaign]
+verify_jwt = false
+
+[functions.create-payment]
+verify_jwt = false
+
+[functions.buscar-produtos-lomadee]
+verify_jwt = false
+
+[functions.buscar-produtos-shopee]
+verify_jwt = false
+
+[functions.shopee-product-search]
+verify_jwt = false
+
+[functions.create-reviewer-user]
+verify_jwt = false
+
+[functions.generate-tesmann-content]
+verify_jwt = false
+
+[functions.create-empresa-user]
+verify_jwt = false
+
+[functions.discovery-cnpj]
+verify_jwt = false
+
+[functions.enrich-socio]
+verify_jwt = false
+
+[functions.qualify-prospect]
+verify_jwt = false
+
+[functions.generate-message]
+verify_jwt = false
+
+[functions.export-zapi]
+verify_jwt = false
+
+[functions.generate-leads-b2c]
+verify_jwt = false
+
+[functions.generate-leads-b2b]
+verify_jwt = false
+
+[functions.enrich-lead-bulk]
+verify_jwt = false
+
+[functions.validate-and-classify-lead]
+verify_jwt = false
+
+[functions.calculate-lead-score]
+verify_jwt = false
+
+[functions.search-leads]
+verify_jwt = false
+
+[functions.converter-shopee]
+verify_jwt = false
+
+[functions.analisar-comprovante-shopee]
+verify_jwt = false
+
+[functions.voice-ai-calling]
+verify_jwt = false
+
+[functions.voice-ai-callback]
+verify_jwt = false
+
+[functions.test-wuzapi-direct]
+verify_jwt = false
+
+[functions.google-ads-auth]
+verify_jwt = false
+
+[functions.google-ads-callback]
+verify_jwt = false
+
+[functions.google-ads-create-campaign]
+verify_jwt = false
+
+[functions.google-ads-sync-metrics]
+verify_jwt = false
+
+[functions.update-reviewer-password]
+verify_jwt = false
+
+[functions.create-approach-strategy]
+verify_jwt = false
+
+[functions.send-whatsapp-prospeccao]
+verify_jwt = false
+
+[functions.gerar-mensagem-ia]
+verify_jwt = false
+
+[functions.enrich-lead]
+verify_jwt = false
+
+[functions.validate-whatsapp]
+verify_jwt = false
+
+[functions.apify-linkedin-scraper]
+verify_jwt = false
+
+[functions.apify-instagram-scraper]
+verify_jwt = false
+
+[functions.generate-leads-quality]
+verify_jwt = false
+
+[functions.calcular-score]
+verify_jwt = false
+
+[functions.generate-social-post]
+verify_jwt = false
+
+[functions.atendimento-suporte]
+verify_jwt = false
+
+[functions.gerar-mensagens-linkedin]
+verify_jwt = false
+
+[functions.ai-product-assistant]
+verify_jwt = false
+
+[functions.ai-product-assistant-simple]
+verify_jwt = false
+
+[functions.enrich-empresa]
+verify_jwt = false
+
+[functions.gerar-icp-ia]
+verify_jwt = false
+
+[functions.enrich-leads-cnpj]
+verify_jwt = false
+
+[functions.wuzapi-qrcode]
+verify_jwt = true
+
+[functions.sync-stock]
+verify_jwt = false
+
+[functions.get-products-for-ai]
+verify_jwt = false
+
+[functions.limpar-sessoes]
+verify_jwt = false
+
+[functions.registrar-optin]
+verify_jwt = false
+
+[functions.sincronizar-optins-retroativo]
+verify_jwt = false
+
+[functions.trocar-numero-whatsapp]
+verify_jwt = false
+
+[functions.buscar-leads-enriquecidos]
+verify_jwt = false
+
+[functions.validar-lead-multifonte]
+verify_jwt = false
+
+[functions.pietro-public]
+verify_jwt = false
+
+[functions.generate-product-video]
+verify_jwt = false
+
+[functions.create-client-user]
+verify_jwt = false
+
+[functions.executar-campanhas-agendadas]
+verify_jwt = false
+
+[functions.gerar-video]
+verify_jwt = false
+
+[functions.criar-instancia-wuzapi-afiliado]
+verify_jwt = false
+
+[functions.send-wuzapi-message-afiliado]
+verify_jwt = false
+
+[functions.insert-produto-afiliado]
+verify_jwt = false
+
+[functions.insert-produto-shopee]
+verify_jwt = false
+
+[functions.wuzapi-webhook-afiliados]
+verify_jwt = false
+
+[functions.diagnostico-wuzapi]
+verify_jwt = false
+
+[functions.verificar-webhook-wuzapi]
+verify_jwt = false
+
+[functions.verificar-contabo-wuzapi]
+verify_jwt = false
+
+[functions.corrigir-webhook-contabo]
+verify_jwt = false
+
+[functions.enviar-extensoes-afiliado]
+verify_jwt = false
+
